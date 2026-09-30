@@ -1,0 +1,24 @@
+@host = http://localhost:5041
+
+### Ingest the sample handbook (run from the repo root so the relative path resolves)
+POST {{host}}/documents
+Content-Type: multipart/form-data; boundary=docrag
+
+--docrag
+Content-Disposition: form-data; name="file"; filename="acme-handbook.md"
+Content-Type: text/markdown
+
+< ./acme-handbook.md
+--docrag--
+
+### Ask a question that the handbook answers
+POST {{host}}/ask
+Content-Type: application/json
+
+{ "question": "How many vacation days can I carry over?", "topK": 5 }
+
+### Ask something the handbook does not cover -> Status: InsufficientContext
+POST {{host}}/ask
+Content-Type: application/json
+
+{ "question": "What is the CEO's favorite color?" }

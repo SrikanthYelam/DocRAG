@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DocRAG.Ingestion\DocRAG.Ingestion.csproj" />
+    <ProjectReference Include="..\DocRAG.Infrastructure\DocRAG.Infrastructure.csproj" />
+    <ProjectReference Include="..\DocRAG.Core\DocRAG.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>e2771aec-2056-4c3f-9af3-6d4c52990652</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
