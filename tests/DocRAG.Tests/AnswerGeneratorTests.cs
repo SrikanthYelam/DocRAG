@@ -78,6 +78,19 @@ public class AnswerGeneratorTests
         Assert.Equal(new Citation("a", "kb.md", 2, "Refunds"), citation);
     }
 
+    [Theory]
+    [InlineData("chunk:a")]
+    [InlineData("[chunk:a]")]
+    [InlineData(" a ")]
+    public async Task Citation_ids_are_accepted_with_or_without_the_chunk_tag(string modelId)
+    {
+        var chat = new StubChatClient($$"""{"sufficient": true, "answer": "x", "citations": ["{{modelId}}"]}""");
+
+        var answer = await Generator(chat).GenerateAsync("q?", [Hit("a", 0.8)]);
+
+        Assert.Equal("a", Assert.Single(answer.Citations).ChunkId);
+    }
+
     [Fact]
     public async Task Prompt_tags_each_chunk_with_its_id_and_source()
     {

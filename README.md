@@ -36,14 +36,14 @@ Prerequisites: .NET 9 SDK, an OpenAI API key.
 # 1. Fetch the sqlite-vec extension for Windows (one-time; Linux/Docker fetches its own)
 ./scripts/fetch-sqlite-vec.ps1
 
-# 2. Store your API key in user secrets (never committed)
+# 2. Provide your API key - either set the OPENAI_API_KEY environment variable, or use user secrets (never committed)
 dotnet user-secrets set "OpenAI:ApiKey" "sk-..." --project src/DocRAG.Api
 
 # 3. Run
 dotnet run --project src/DocRAG.Api --launch-profile http     # http://localhost:5041
 ```
 
-The key can also come from the `OpenAI__ApiKey` environment variable. `appsettings.json` holds all other settings
+Key lookup order: `OpenAI:ApiKey` (user secrets or the `OpenAI__ApiKey` env var), then `OPENAI_API_KEY`. `appsettings.json` holds all other settings
 (models, chunk sizes, similarity threshold, DB path); the database is created at `data/docrag.db`.
 
 ### Docker

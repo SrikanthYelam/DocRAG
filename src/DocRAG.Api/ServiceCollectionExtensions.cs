@@ -22,11 +22,14 @@ public static class ServiceCollectionExtensions
         // without a key, but any call that needs OpenAI fails with an actionable message.
         services.AddSingleton(sp =>
         {
+            // Precedence: OpenAI:ApiKey (user secrets / OpenAI__ApiKey), then the conventional OPENAI_API_KEY.
             var key = sp.GetRequiredService<IOptions<OpenAiOptions>>().Value.ApiKey;
             if (string.IsNullOrWhiteSpace(key))
+                key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+            if (string.IsNullOrWhiteSpace(key))
                 throw new InvalidOperationException(
-                    "OpenAI:ApiKey is not configured. Set it with 'dotnet user-secrets set \"OpenAI:ApiKey\" \"sk-...\"' " +
-                    "or the OpenAI__ApiKey environment variable.");
+                    "No OpenAI API key found. Set the OPENAI_API_KEY environment variable, or use " +
+                    "'dotnet user-secrets set \"OpenAI:ApiKey\" \"sk-...\"' / the OpenAI__ApiKey environment variable.");
             return new OpenAIClient(key);
         });
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
