@@ -28,6 +28,36 @@ page number (PDF) and heading path.
 with no answer text): if the best vector hit is below `Answer:MinSimilarity` the model isn't called at all, and the
 model may itself declare the context insufficient. Citations the model invents are dropped.
 
+## Why sqlite-vec, and its limitations
+
+sqlite-vec fits this project's goal: zero infrastructure, a single file, and keyword + vector search in the same
+database. That choice has trade-offs compared with popular or standalone vector databases (Qdrant, pgvector,
+Pinecone, Weaviate, Milvus):
+
+- **Exact (brute-force) search only.** `vec0` compares the query against every stored vector. There is no
+  approximate-nearest-neighbour index (HNSW/IVF) in the 0.1.x releases, so query time grows linearly with corpus
+  size. That is fine for thousands to low hundreds of thousands of chunks; beyond that, latency becomes a problem.
+- **Pre-1.0 software.** The project is at 0.1.x, so APIs, the `vec0` syntax and the on-disk format may change between
+  versions. The version is pinned in [scripts/fetch-sqlite-vec.ps1](scripts/fetch-sqlite-vec.ps1) and the Dockerfile.
+- **Embedded, single-node.** SQLite lives in-process and has one writer at a time. There is no network server,
+  replication, sharding, authentication or horizontal scaling, and several app instances cannot safely share one file.
+- **Native extension to ship.** The loadable `vec0` binary must match the OS and CPU architecture and be present at
+  runtime (`native/<rid>/`). A missing or mismatched binary is a startup-time failure, and some hosted or locked-down
+  environments don't allow loading extensions at all.
+- **Fixed embedding dimension.** Dimensions are set when the `vec_chunks` table is created. Changing the embedding
+  model to one with a different size means deleting the database and re-ingesting.
+- **Limited filtering and query features.** Filtering by metadata (for example restricting to one source file) is
+  much weaker than in a dedicated engine, so filters are best applied after the vector search or by joining back to
+  `chunks`. There is no built-in hybrid ranking, reranking, multi-vector support or namespaces/multi-tenancy;
+  hybrid search here is something this project implements on top.
+- **No managed operations.** Backups, index tuning, monitoring, upgrades and access control are all up to you.
+  Standalone databases provide these out of the box.
+- **Smaller ecosystem.** Fewer client libraries, tutorials and integrations than pgvector or the major vector
+  databases, and little community knowledge of production tuning.
+
+The vector store sits behind `IVectorStore`, so swapping in another backend later means writing one new
+implementation in `DocRAG.Infrastructure`; Core, Ingestion and the API don't change.
+
 ## Setup
 
 Prerequisites: .NET 9 SDK, an OpenAI API key.
