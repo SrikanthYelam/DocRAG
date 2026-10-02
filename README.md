@@ -79,11 +79,23 @@ Key lookup order: `OpenAI:ApiKey` (user secrets or the `OpenAI__ApiKey` env var)
 ### Docker
 
 ```bash
-docker build -t docrag .
-docker run -p 8080:8080 -e OpenAI__ApiKey=sk-... -v docrag-data:/data docrag
+docker compose up --build        # reads OPENAI_API_KEY from your shell or a git-ignored .env file
 ```
 
+The API is then at `http://localhost:8080` (use that port in the examples below instead of 5041). The database
+lives in the `docrag-data` volume, so ingested documents survive restarts; `docker compose down -v` wipes them.
+The image downloads the Linux sqlite-vec build itself, so no local setup script is needed.
+
+Without compose: `docker build -t docrag .` then
+`docker run -p 8080:8080 -e OPENAI_API_KEY=sk-... -v docrag-data:/data docrag`.
+
 ## Try it
+
+The easiest way is **Swagger UI**: open `http://localhost:5041/` (or `:8080` in Docker), which redirects to `/swagger`.
+Use *Try it out* on `POST /documents` to pick a file, then on `POST /ask`. The raw OpenAPI document is at `/openapi/v1.json`.
+Swagger is enabled in every environment because this is a local demo; put it behind a flag or auth before deploying anywhere public.
+
+Or from the command line:
 
 ```bash
 # ingest (.md, .txt or .pdf)

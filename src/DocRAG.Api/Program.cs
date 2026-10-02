@@ -5,8 +5,18 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDocRag(builder.Configuration);
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+// Enabled in every environment on purpose: this is a local demo, and the container runs as Production.
+app.MapOpenApi();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/openapi/v1.json", "DocRAG API v1");
+    options.RoutePrefix = "swagger";
+});
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.MapPost("/documents", async Task<Results<Ok<IngestionResult>, BadRequest<string>>> (
     IFormFile file, IngestionService ingestion, CancellationToken ct) =>
@@ -24,7 +34,10 @@ app.MapPost("/documents", async Task<Results<Ok<IngestionResult>, BadRequest<str
     {
         return TypedResults.BadRequest(ex.Message);
     }
-}).DisableAntiforgery();
+})
+.DisableAntiforgery()
+.WithSummary("Ingest a document")
+.WithDescription("Upload a .md, .txt or .pdf file. It is parsed, chunked, embedded and stored; re-uploading the same file name replaces its previous chunks.");
 
 app.MapPost("/ask", async Task<Results<Ok<AskResponse>, BadRequest<string>>> (
     AskRequest request, IRetriever retriever, IAnswerGenerator generator, CancellationToken ct) =>
@@ -35,7 +48,9 @@ app.MapPost("/ask", async Task<Results<Ok<AskResponse>, BadRequest<string>>> (
     var retrieved = await retriever.RetrieveAsync(request.Question, topK, ct);
     var answer = await generator.GenerateAsync(request.Question, retrieved, ct);
     return TypedResults.Ok(AskResponse.From(answer));
-});
+})
+.WithSummary("Ask a question")
+.WithDescription("Retrieves the top-K chunks and generates a cited answer. Status is 'InsufficientContext' (no answer text) when the documents don't contain enough information.");
 
 app.Run();
 
