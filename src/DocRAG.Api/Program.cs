@@ -50,33 +50,12 @@ app.MapPost("/ask", async Task<Results<Ok<AskResponse>, BadRequest<string>>> (
 
     var retrieved = await retriever.RetrieveAsync(request.Question, topK, request.Mode, ct);
     var answer = await generator.GenerateAsync(request.Question, retrieved, ct);
-    return TypedResults.Ok(AskResponse.From(answer));
+    return TypedResults.Ok(AskResponse.From(request.Question, answer));
 })
 .WithSummary("Ask a question")
-.WithDescription("Retrieves the top-K chunks and generates a cited answer. 'mode' is Vector, Keyword or Hybrid (default from configuration). Status is 'InsufficientContext' (no answer text) when the documents don't contain enough information.");
+.WithDescription("Retrieves the top-K chunks and generates a cited answer. 'mode' is Vector, Keyword or Hybrid (default from configuration). 'sources' lists the chunks the answer cites; 'retrievedChunks' lists everything retrieved, with scores. Status is 'InsufficientContext' (no answer text, no sources) when the documents don't contain enough information.");
 
 app.Run();
-
-public sealed record AskRequest(string Question, int? TopK, RetrievalSource? Mode);
-
-public sealed record AskResponse(
-    string Status,
-    string? Answer,
-    IReadOnlyList<Citation> Citations,
-    IReadOnlyList<RetrievedChunkDto> RetrievedChunks)
-{
-    public static AskResponse From(GeneratedAnswer a) => new(
-        a.Status.ToString(),
-        a.Text,
-        a.Citations,
-        a.RetrievedChunks.Select(r => new RetrievedChunkDto(
-            r.Chunk.Id, r.Score, r.VectorScore, r.Source.ToString(), r.Chunk.Metadata.SourceFile,
-            r.Chunk.Metadata.PageNumber, r.Chunk.Metadata.HeadingPath, r.Chunk.Text)).ToList());
-}
-
-public sealed record RetrievedChunkDto(
-    string Id, double Score, double? VectorScore, string Source, string SourceFile, int? Page,
-    IReadOnlyList<string> HeadingPath, string Text);
 
 // Exposes the entry point to WebApplicationFactory-based tests.
 public partial class Program;

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\DocRAG.Core\DocRAG.Core.csproj" />
     <ProjectReference Include="..\..\src\DocRAG.Ingestion\DocRAG.Ingestion.csproj" />
     <ProjectReference Include="..\..\src\DocRAG.Infrastructure\DocRAG.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\DocRAG.Api\DocRAG.Api.csproj" />
   </ItemGroup>
 
 </Project>

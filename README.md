@@ -120,7 +120,26 @@ curl -X POST http://localhost:5041/ask -H "Content-Type: application/json" \
      -d '{"question": "How many vacation days can I carry over?"}'
 ```
 
-`/ask` returns `status`, `answer`, `citations` (chunk id, file, page, heading path) and the `retrievedChunks` with scores.
+`/ask` returns `question`, `status`, `answer`, `sources` and `retrievedChunks`:
+
+```json
+{
+  "question": "How many vacation days can I carry over?",
+  "status": "Answered",
+  "answer": "You can carry over up to 5 unused vacation days ...",
+  "sources": [
+    { "document": "acme-handbook.md", "chunkId": "b4b15a646a05", "page": null,
+      "headingPath": "Acme Employee Handbook > Time Off > Vacation", "content": "Full-time employees accrue ..." }
+  ],
+  "retrievedChunks": [
+    { "id": "b4b15a646a05", "score": 0.032, "vectorScore": 0.52, "source": "Hybrid", "sourceFile": "acme-handbook.md",
+      "page": null, "headingPath": ["Acme Employee Handbook", "Time Off", "Vacation"], "text": "..." }
+  ]
+}
+```
+
+`sources` are the chunks the answer cites; `retrievedChunks` is everything retrieved, cited or not, with scores (useful for
+debugging and evaluation). For unanswerable questions `status` is `InsufficientContext`, `answer` is null and `sources` is empty.
 A question the documents can't answer returns `"status": "InsufficientContext"`. [samples/requests.http](samples/requests.http) has the same requests for the VS Code REST Client.
 
 ## Tests
