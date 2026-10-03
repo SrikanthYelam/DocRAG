@@ -23,6 +23,15 @@ page number (PDF) and heading path.
 **Store**: one SQLite file with a `chunks` table, a `vec0` cosine index and an FTS5 keyword index (BM25) sharing rowids.
 `SearchAsync` (vector) and `KeywordSearchAsync` are both on `IVectorStore`, ready to be fused for hybrid search.
 
+**Retrieval** (what `/ask` does today): the question is embedded with the same model as the chunks, and the store returns
+the `topK` nearest chunks (default 5, max 20) by cosine similarity. sqlite-vec reports cosine distance and the store
+converts it to similarity (1.0 = identical, 0 = unrelated), so higher is better. Search is **vector-only for now**: the
+keyword (BM25) path is implemented and tested but not yet used by `/ask`; hybrid search will fuse both rankings
+(Reciprocal Rank Fusion, since cosine and BM25 scores aren't comparable). Vector search matches meaning rather than exact
+terms, so it can miss rare tokens such as error codes or names, which is the main motivation for hybrid. It always
+returns K results even when none are relevant, so the similarity gate below is what stops off-topic questions.
+When ingesting, each chunk's heading path is prepended to the text that gets embedded (not to the stored text).
+
 **Answering**: chunks are tagged `[chunk:<id>]` in the prompt and the model must reply with JSON
 (`sufficient`, `answer`, `citations`). Two guards yield `Status: "InsufficientContext"` (distinct from `Answered`,
 with no answer text): if the best vector hit is below `Answer:MinSimilarity` the model isn't called at all, and the
