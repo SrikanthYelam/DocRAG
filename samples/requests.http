@@ -15,7 +15,7 @@ Content-Type: text/markdown
 POST {{host}}/ask
 Content-Type: application/json
 
-{ "question": "How many vacation days can I carry over?", "topK": 5 }
+{ "question": "How many vacation days can I carry over?", "topK": 5, "mode": "Hybrid" }
 
 ### Ask something the handbook does not cover -> Status: InsufficientContext
 POST {{host}}/ask

@@ -21,21 +21,26 @@ o200k tokenizer) with ~12% overlap between adjacent chunks in the same section. 
 page number (PDF) and heading path.
 
 **Store**: one SQLite file with a `chunks` table, a `vec0` cosine index and an FTS5 keyword index (BM25) sharing rowids.
-`SearchAsync` (vector) and `KeywordSearchAsync` are both on `IVectorStore`, ready to be fused for hybrid search.
+`SearchAsync` (vector) and `KeywordSearchAsync` are both on `IVectorStore`.
 
-**Retrieval** (what `/ask` does today): the question is embedded with the same model as the chunks, and the store returns
-the `topK` nearest chunks (default 5, max 20) by cosine similarity. sqlite-vec reports cosine distance and the store
-converts it to similarity (1.0 = identical, 0 = unrelated), so higher is better. Search is **vector-only for now**: the
-keyword (BM25) path is implemented and tested but not yet used by `/ask`; hybrid search will fuse both rankings
-(Reciprocal Rank Fusion, since cosine and BM25 scores aren't comparable). Vector search matches meaning rather than exact
-terms, so it can miss rare tokens such as error codes or names, which is the main motivation for hybrid. It always
-returns K results even when none are relevant, so the similarity gate below is what stops off-topic questions.
+**Retrieval**: `/ask` takes an optional `mode` (`Vector`, `Keyword` or `Hybrid`; default `Retrieval:Mode`, which is `Hybrid`).
+- *Vector*: the question is embedded with the same model as the chunks and the store returns the `topK` nearest chunks
+  (default 5, max 20) by cosine similarity. sqlite-vec reports cosine distance and the store converts it to similarity
+  (1.0 = identical, 0 = unrelated). It matches meaning rather than exact terms, so it can miss rare tokens such as
+  error codes or names, and it always returns K results even when none are relevant.
+- *Keyword*: FTS5 BM25 over chunk text and heading path.
+- *Hybrid*: both searches run over a wider candidate pool (`Retrieval:CandidatePoolSize`, default 20) and are merged
+  with Reciprocal Rank Fusion (`score = sum of 1 / (60 + rank)`), which uses ranks only because cosine and BM25 scores
+  aren't comparable. Chunks found by both lists rise to the top; each result keeps its original cosine similarity in
+  `vectorScore` (null if only the keyword search found it), because fused scores are not similarities.
+
 When ingesting, each chunk's heading path is prepended to the text that gets embedded (not to the stored text).
 
 **Answering**: chunks are tagged `[chunk:<id>]` in the prompt and the model must reply with JSON
 (`sufficient`, `answer`, `citations`). Two guards yield `Status: "InsufficientContext"` (distinct from `Answered`,
-with no answer text): if the best vector hit is below `Answer:MinSimilarity` the model isn't called at all, and the
-model may itself declare the context insufficient. Citations the model invents are dropped.
+with no answer text): if the best `vectorScore` among the retrieved chunks is below `Answer:MinSimilarity` the model isn't
+called at all (so strong keyword matches alone can't override a weak semantic match; keyword-only mode has no vector
+scores and is not gated), and the model may itself declare the context insufficient. Citations the model invents are dropped.
 
 ## Why sqlite-vec, and its limitations
 

@@ -153,7 +153,9 @@ public sealed class SqliteVectorStore : IVectorStore, IDisposable
             var headings = JsonSerializer.Deserialize<string[]>(r.GetString(3)) ?? [];
             var meta = new ChunkMetadata(r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2), headings);
             var chunk = new DocumentChunk(r.GetString(0), r.GetString(6), r.GetInt32(5), r.GetInt32(4), meta);
-            results.Add(new RetrievedChunk(chunk, r.GetDouble(7), source));
+            var score = r.GetDouble(7);
+            results.Add(new RetrievedChunk(chunk, score, source,
+                source == RetrievalSource.Vector ? score : null));
         }
         return results;
     }

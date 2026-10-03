@@ -34,7 +34,9 @@ public interface IVectorStore
 
 public interface IRetriever
 {
-    Task<IReadOnlyList<RetrievedChunk>> RetrieveAsync(string question, int topK, CancellationToken ct = default);
+    /// <param name="mode">Vector, Keyword or Hybrid; null uses the configured default.</param>
+    Task<IReadOnlyList<RetrievedChunk>> RetrieveAsync(
+        string question, int topK, RetrievalSource? mode = null, CancellationToken ct = default);
 }
 
 public interface IAnswerGenerator

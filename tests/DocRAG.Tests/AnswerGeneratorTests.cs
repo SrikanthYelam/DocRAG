@@ -27,7 +27,12 @@ public class AnswerGeneratorTests
     }
 
     private static RetrievedChunk Hit(string id, double score, string text = "text") =>
-        new(new DocumentChunk(id, text, 1, 0, new ChunkMetadata("kb.md", 2, ["Refunds"])), score, RetrievalSource.Vector);
+        new(new DocumentChunk(id, text, 1, 0, new ChunkMetadata("kb.md", 2, ["Refunds"])), score, RetrievalSource.Vector, score);
+
+    // Mimics a fused result: Score is a tiny RRF value, VectorScore carries the real cosine similarity.
+    private static RetrievedChunk Fused(string id, double rrfScore, double? vectorScore) =>
+        new(new DocumentChunk(id, "text", 1, 0, new ChunkMetadata("kb.md", 2, ["Refunds"])),
+            rrfScore, RetrievalSource.Hybrid, vectorScore);
 
     private static OpenAiAnswerGenerator Generator(StubChatClient chat, double min = 0.3) =>
         new(chat, Options.Create(new AnswerOptions { MinSimilarity = min }));
@@ -43,6 +48,41 @@ public class AnswerGeneratorTests
         Assert.Null(answer.Text);
         Assert.Equal(0, chat.Calls);
         Assert.Single(answer.RetrievedChunks);
+    }
+
+    [Fact]
+    public async Task Gate_uses_vector_similarity_not_the_fused_rrf_score()
+    {
+        // RRF scores (~0.03) are far below 0.3, but the cosine similarity (0.8) is strong: the model must be called.
+        var chat = new StubChatClient("""{"sufficient": true, "answer": "x", "citations": []}""");
+
+        var answer = await Generator(chat).GenerateAsync("q?", [Fused("a", 0.033, 0.8)]);
+
+        Assert.Equal(AnswerStatus.Answered, answer.Status);
+        Assert.Equal(1, chat.Calls);
+    }
+
+    [Fact]
+    public async Task Fused_results_with_weak_vector_similarity_are_gated_even_if_keywords_matched()
+    {
+        var chat = new StubChatClient("{}");
+
+        var answer = await Generator(chat).GenerateAsync("q?", [Fused("kw", 0.033, null), Fused("weak", 0.016, 0.1)]);
+
+        Assert.Equal(AnswerStatus.InsufficientContext, answer.Status);
+        Assert.Equal(0, chat.Calls);
+    }
+
+    [Fact]
+    public async Task Keyword_only_context_has_no_vector_scores_so_it_is_not_gated()
+    {
+        var chat = new StubChatClient("""{"sufficient": true, "answer": "x", "citations": []}""");
+        var keywordHit = new RetrievedChunk(
+            new DocumentChunk("k", "text", 1, 0, new ChunkMetadata("kb.md", null, [])), 4.2, RetrievalSource.Keyword);
+
+        var answer = await Generator(chat).GenerateAsync("q?", [keywordHit]);
+
+        Assert.Equal(AnswerStatus.Answered, answer.Status);
     }
 
     [Fact]

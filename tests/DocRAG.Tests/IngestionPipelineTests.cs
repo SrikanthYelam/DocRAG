@@ -43,12 +43,26 @@ public sealed class IngestionPipelineTests : IDisposable
     public async Task Retrieval_finds_the_relevant_section_first()
     {
         await _ingestion.IngestAsync(Md(Handbook), "handbook.md");
-        var retriever = new VectorRetriever(_embedder, _store);
+        var retriever = new HybridRetriever(_embedder, _store, Options.Create(new RetrievalOptions()));
 
-        var results = await retriever.RetrieveAsync("how many days for a refund purchase", topK: 2);
+        var results = await retriever.RetrieveAsync("how many days for a refund purchase", topK: 2, mode: RetrievalSource.Vector);
 
         Assert.Equal(["Handbook", "Refunds"], results[0].Chunk.Metadata.HeadingPath);
         Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task Hybrid_retrieval_through_the_real_store_fuses_vector_and_keyword_hits()
+    {
+        await _ingestion.IngestAsync(Md(Handbook), "handbook.md");
+        var retriever = new HybridRetriever(_embedder, _store, Options.Create(new RetrievalOptions()));
+
+        var results = await retriever.RetrieveAsync("warehouse Rotterdam shipping", topK: 2, mode: RetrievalSource.Hybrid);
+
+        Assert.Equal(["Handbook", "Shipping"], results[0].Chunk.Metadata.HeadingPath);
+        Assert.All(results, r => Assert.Equal(RetrievalSource.Hybrid, r.Source));
+        // Found by both searches: the cosine score must survive fusion for the answer gate.
+        Assert.InRange(results[0].VectorScore!.Value, 0.1, 1.0);
     }
 
     [Fact]

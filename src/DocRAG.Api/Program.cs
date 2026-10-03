@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using DocRAG.Api;
 using DocRAG.Core;
 using DocRAG.Ingestion;
@@ -6,6 +7,8 @@ using Microsoft.AspNetCore.Http.HttpResults;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDocRag(builder.Configuration);
 builder.Services.AddOpenApi();
+// Enums as strings ("Hybrid") in requests, responses and the OpenAPI document.
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 var app = builder.Build();
 
@@ -45,16 +48,16 @@ app.MapPost("/ask", async Task<Results<Ok<AskResponse>, BadRequest<string>>> (
     if (string.IsNullOrWhiteSpace(request.Question)) return TypedResults.BadRequest("A question is required.");
     var topK = Math.Clamp(request.TopK ?? 5, 1, 20);
 
-    var retrieved = await retriever.RetrieveAsync(request.Question, topK, ct);
+    var retrieved = await retriever.RetrieveAsync(request.Question, topK, request.Mode, ct);
     var answer = await generator.GenerateAsync(request.Question, retrieved, ct);
     return TypedResults.Ok(AskResponse.From(answer));
 })
 .WithSummary("Ask a question")
-.WithDescription("Retrieves the top-K chunks and generates a cited answer. Status is 'InsufficientContext' (no answer text) when the documents don't contain enough information.");
+.WithDescription("Retrieves the top-K chunks and generates a cited answer. 'mode' is Vector, Keyword or Hybrid (default from configuration). Status is 'InsufficientContext' (no answer text) when the documents don't contain enough information.");
 
 app.Run();
 
-public sealed record AskRequest(string Question, int? TopK);
+public sealed record AskRequest(string Question, int? TopK, RetrievalSource? Mode);
 
 public sealed record AskResponse(
     string Status,
@@ -67,12 +70,12 @@ public sealed record AskResponse(
         a.Text,
         a.Citations,
         a.RetrievedChunks.Select(r => new RetrievedChunkDto(
-            r.Chunk.Id, r.Score, r.Source.ToString(), r.Chunk.Metadata.SourceFile,
+            r.Chunk.Id, r.Score, r.VectorScore, r.Source.ToString(), r.Chunk.Metadata.SourceFile,
             r.Chunk.Metadata.PageNumber, r.Chunk.Metadata.HeadingPath, r.Chunk.Text)).ToList());
 }
 
 public sealed record RetrievedChunkDto(
-    string Id, double Score, string Source, string SourceFile, int? Page,
+    string Id, double Score, double? VectorScore, string Source, string SourceFile, int? Page,
     IReadOnlyList<string> HeadingPath, string Text);
 
 // Exposes the entry point to WebApplicationFactory-based tests.

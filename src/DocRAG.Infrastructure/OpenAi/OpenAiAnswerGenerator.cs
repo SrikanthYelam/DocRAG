@@ -46,8 +46,9 @@ public sealed class OpenAiAnswerGenerator(IChatClient chat, IOptions<AnswerOptio
     private bool IsContextWeak(IReadOnlyList<RetrievedChunk> context)
     {
         if (context.Count == 0) return true;
-        // Similarity is only comparable across vector hits; keyword scores are BM25 and not gated here.
-        var vectorScores = context.Where(c => c.Source == RetrievalSource.Vector).Select(c => c.Score).ToList();
+        // Gate on cosine similarity only (VectorScore), which survives fusion; BM25 and RRF scores aren't comparable
+        // to it. Keyword-only retrieval has no vector scores, so it is not gated.
+        var vectorScores = context.Where(c => c.VectorScore.HasValue).Select(c => c.VectorScore!.Value).ToList();
         return vectorScores.Count > 0 && vectorScores.Max() < _options.MinSimilarity;
     }
 

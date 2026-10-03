@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
         services.Configure<OpenAiOptions>(config.GetSection(OpenAiOptions.SectionName));
         services.Configure<SqliteVectorStoreOptions>(config.GetSection(SqliteVectorStoreOptions.SectionName));
         services.Configure<ChunkingOptions>(config.GetSection(ChunkingOptions.SectionName));
+        services.Configure<RetrievalOptions>(config.GetSection(RetrievalOptions.SectionName));
         services.Configure<AnswerOptions>(config.GetSection(AnswerOptions.SectionName));
 
         // The OpenAI client is created lazily so the app can start (and /documents parse errors surface)
@@ -48,7 +49,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, PdfDocumentParser>();
         services.AddSingleton<IEmbedder, OpenAiEmbedder>();
         services.AddSingleton<IVectorStore, SqliteVectorStore>();
-        services.AddSingleton<IRetriever, VectorRetriever>();
+        services.AddSingleton<IRetriever, HybridRetriever>();
         services.AddSingleton<IAnswerGenerator, OpenAiAnswerGenerator>();
         services.AddSingleton<IngestionService>();
         return services;

@@ -19,8 +19,16 @@ public sealed record DocumentChunk(
 
 public enum RetrievalSource { Vector, Keyword, Hybrid }
 
-/// <summary>Score meaning depends on Source: cosine similarity (Vector), BM25-derived rank score (Keyword).</summary>
-public sealed record RetrievedChunk(DocumentChunk Chunk, double Score, RetrievalSource Source);
+/// <summary>
+/// Score meaning depends on Source: cosine similarity (Vector), BM25-derived score (Keyword), or a
+/// Reciprocal Rank Fusion score (Hybrid). VectorScore is always the cosine similarity when the chunk was found by
+/// vector search (null otherwise), so confidence checks keep working after fusion replaces Score.
+/// </summary>
+public sealed record RetrievedChunk(
+    DocumentChunk Chunk,
+    double Score,
+    RetrievalSource Source,
+    double? VectorScore = null);
 
 public sealed record Citation(string ChunkId, string SourceFile, int? PageNumber, string HeadingPath);
 
