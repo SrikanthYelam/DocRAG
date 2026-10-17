@@ -33,5 +33,5 @@ public sealed class AnswerOptions
     public const string SectionName = "Answer";
 
     /// <summary>If no retrieved chunk reaches this cosine similarity, skip the LLM and return InsufficientContext.</summary>
-    public double MinSimilarity { get; set; } = 0.30;
+    public double MinSimilarity { get; set; } = 0.25;
 }

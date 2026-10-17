@@ -18,7 +18,9 @@ Only Infrastructure talks to the network. Tests use `FakeEmbedder` (deterministi
 
 **Chunking**: split by heading, then paragraph, then sentence/word, packed to a 400-token target (500 hard max,
 o200k tokenizer) with ~12% overlap between adjacent chunks in the same section. Each chunk keeps source file,
-page number (PDF) and heading path.
+page number (PDF) and heading path. PDF pages have no reliable headings, so consecutive pages are chunked as one
+continuous flow: text and overlap carry across page breaks (a sentence that starts on one page and ends on the next
+stays in one chunk) and each chunk reports the page its new text starts on. See [Chunking strategies](#chunking-strategies).
 
 **Store**: one SQLite file with a `chunks` table, a `vec0` cosine index and an FTS5 keyword index (BM25) sharing rowids.
 `SearchAsync` (vector) and `KeywordSearchAsync` are both on `IVectorStore`.
@@ -41,6 +43,27 @@ When ingesting, each chunk's heading path is prepended to the text that gets emb
 with no answer text): if the best `vectorScore` among the retrieved chunks is below `Answer:MinSimilarity` the model isn't
 called at all (so strong keyword matches alone can't override a weak semantic match; keyword-only mode has no vector
 scores and is not gated), and the model may itself declare the context insufficient. Citations the model invents are dropped.
+`Answer:MinSimilarity` defaults to 0.25; see [Evaluation findings](#evaluation-findings) for why it was lowered from 0.30.
+
+## Chunking strategies
+
+DocRAG has one chunker ([Chunker.cs](src/DocRAG.Ingestion/Chunker.cs)) for every file type. It is **recursive**
+chunking, with an overlap borrowed from fixed-size chunking and section boundaries borrowed from document-based
+chunking. The table lists the eight common strategies, whether each is used, and why.
+
+| Strategy | Used? | Why |
+| --- | --- | --- |
+| **Recursive** | **Yes, the core** | Splits on paragraphs first, then sentences, then words, then characters, only when a piece is still over budget, and packs pieces up to 400 tokens. Deterministic, no extra API calls, and a good fit for the prose documents DocRAG ingests. |
+| **Document-based** | **Partly** | The parsers mark the structural breaks: markdown headings (with the heading path, ignoring `#` inside code fences) and PDF pages. A chunk never crosses a heading. Inside a section, splitting follows the token budget, not the document's own markup (tables and code blocks are not treated specially). The heading path is stored as metadata and prepended to the text that is embedded. |
+| **Fixed-size** | **Only the overlap** | Adjacent chunks in a section share ~12% of the budget, taken on whole-word boundaries. There are no pure fixed-length cuts, which ignore sentence boundaries. |
+| **Semantic** | No | Needs an embedding call per sentence at ingestion, and the boundaries depend on a similarity threshold that needs tuning. Heading and paragraph boundaries already give topic-sized chunks for markdown, and no evaluation failure traced back to a missed topic shift. |
+| **LLM-based (propositions)** | No | One LLM call per document, expensive across a large corpus. It also rewrites the text, so cited chunks would no longer quote the original wording. |
+| **Agentic** | No | Only useful when the corpus mixes document types that need different splitters. DocRAG accepts markdown/text and PDF, the file extension already selects the parser, and the evaluation found nothing a per-file choice would improve. |
+| **Late chunking** | No | Needs a long-context embedding model that exposes token-level embeddings. The OpenAI embeddings API used here returns one vector per input. |
+| **Hierarchical** | No, not yet | Needs parent/child storage and retrieval. The heading-path prefix already gives each chunk some section context. It is the best next candidate if evaluation shows answers losing context, for example small chunks that need their section to be understood. |
+
+Chunk size was measured, not assumed: 200-token chunks fixed one question but lowered ranking quality, so 400 stays
+the default (see [Evaluation findings](#evaluation-findings)).
 
 ## Why sqlite-vec, and its limitations
 
@@ -147,3 +170,47 @@ A question the documents can't answer returns `"status": "InsufficientContext"`.
 ```powershell
 dotnet test
 ```
+
+## Evaluation findings
+
+These come from running the [EvalHarness](../EvalHarness) dataset `datasets/acme-hard.json` against this API. It has 25
+questions over a 3-page PDF ([acme-travel-policy.pdf](../EvalHarness/samples/acme-travel-policy.pdf)) and a markdown
+runbook with tables and a code block ([acme-engineering-runbook.md](../EvalHarness/samples/acme-engineering-runbook.md)):
+two questions whose answers straddle a PDF page break, one needing two sources, table and code-block questions, and four
+questions the documents do not answer (the API should decline them). Scores are temperature-0 and were identical across
+repeated runs, so differences between settings are real, but the dataset is small (one question is 4 to 5 points).
+
+**PDF page breaks (fixed).** The chunker used to treat every PDF page as a separate section, so a sentence running over a
+page break was cut in two and no chunk contained it ("A loss that is | reported late may lead to disciplinary action").
+Pages are now chunked as one flow (see [Chunking strategies](#chunking-strategies)). Two unit tests and the two page-break
+questions fail without the fix and pass with it.
+
+**Chunk size and similarity gate** (21 questions, 5 repeats each):
+
+| Setting | Pass rate | Answer correctness | Recall@1 | Recall@3 / @5 |
+| --- | --- | --- | --- | --- |
+| 400 tokens, gate 0.30 (previous default) | 81.0% | 0.810 | 0.905 | 1.00 / 1.00 |
+| 200 tokens, gate 0.30 | 85.7% | 0.838 | 0.762 | 1.00 / 1.00 |
+| **400 tokens, gate 0.25 (current default)** | **85.7%** | **0.860** | **0.905** | **1.00 / 1.00** |
+
+- Smaller chunks fixed one question (`pdf-hotel-london`) but pushed the right chunk out of first place for three more, so
+  400 tokens stays.
+- That question was actually a gate problem. PDFs have no headings, so the first chunk mixes the title, travel approval,
+  booking and lodging, which dilutes its embedding: it scored 0.28 against the question, under the 0.30 gate, and the model
+  was never called. Lowering `Answer:MinSimilarity` to 0.25 fixes it without touching chunk size.
+- A lower gate risks answering questions the documents don't cover, so the dataset now has four must-decline questions
+  (two unrelated, two near-misses such as on-call pay for a SEV1). All four are still declined at 0.25, because the model's
+  own "sufficient" check backs up the gate. With them the dataset scores 22 of 25 (88.0%).
+
+**Known issues, not fixed:**
+
+- **Words fused at line ends in PDFs.** PdfPig's page text joins the last word of a line to the first word of the next
+  (`ofapproval.`) when the PDF has no space glyph there. This is in the PDF parser, not the chunker; building the text from
+  PdfPig's word extraction would likely fix it. The PDF test fixture ends each line with a space, so it does not exercise this.
+- **Three questions still fail at every setting.** `md-rollback-migration` is declined by the model although the exact sentence
+  is in the top chunk (cause not investigated); `pdf-device-wipe` omits "locked immediately"; `md-friday-release` misreads
+  an ambiguously worded sentence.
+- **Only four decline tests.** They check the gate, not every kind of out-of-scope question.
+
+To reproduce, ingest both sample files through `POST /documents`, then from the EvalHarness folder run
+`dotnet run --project src/EvalHarness.Cli -- run --dataset datasets/acme-hard.json --rag-url http://localhost:8080 --repeats 3`.

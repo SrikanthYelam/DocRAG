@@ -9,7 +9,9 @@ namespace DocRAG.Ingestion;
 /// Splits each section into paragraphs, then sentences, then words as needed so every unit fits the
 /// budget; packs units up to TargetTokens; and starts each following chunk in the same section with the
 /// tail of the previous one. Overlap counts toward the budget, so no chunk exceeds TargetTokens
-/// (which is itself capped by MaxTokens).
+/// (which is itself capped by MaxTokens). Consecutive page sections with the same heading path (PDF pages)
+/// are chunked as one flow, so text and overlap carry across page breaks; a chunk reports the page its
+/// new text starts on.
 /// </summary>
 public sealed partial class Chunker : IChunker
 {
@@ -32,12 +34,12 @@ public sealed partial class Chunker : IChunker
     public IReadOnlyList<DocumentChunk> Chunk(ParsedDocument document)
     {
         var result = new List<DocumentChunk>();
-        foreach (var section in document.Sections)
+        foreach (var group in GroupSections(document.Sections))
         {
-            var meta = new ChunkMetadata(document.SourceFile, section.PageNumber, section.HeadingPath);
-            foreach (var text in ChunkSection(section.Text))
+            foreach (var (text, page) in ChunkSection(group))
             {
                 var index = result.Count;
+                var meta = new ChunkMetadata(document.SourceFile, page, group[0].HeadingPath);
                 result.Add(new DocumentChunk(MakeId(document.SourceFile, index, text), text,
                     _tokens.Count(text), index, meta));
             }
@@ -45,37 +47,70 @@ public sealed partial class Chunker : IChunker
         return result;
     }
 
-    private IEnumerable<string> ChunkSection(string text)
+    /// <summary>Runs of paged sections under one heading path (PDF pages) form one group; every other section stands alone.</summary>
+    private static IEnumerable<IReadOnlyList<DocumentSection>> GroupSections(IReadOnlyList<DocumentSection> sections)
+    {
+        var group = new List<DocumentSection>();
+        foreach (var section in sections)
+        {
+            if (group.Count > 0 && !(section.PageNumber is not null && group[0].PageNumber is not null
+                    && section.HeadingPath.SequenceEqual(group[0].HeadingPath)))
+            {
+                yield return group;
+                group = [];
+            }
+            group.Add(section);
+        }
+        if (group.Count > 0) yield return group;
+    }
+
+    private IEnumerable<(string Text, int? Page)> ChunkSection(IReadOnlyList<DocumentSection> pages)
     {
         // Units must leave room for the overlap prefix and the "\n\n" joiner.
         var unitLimit = Math.Max(1, _budget - _overlapTokens - 2);
-        var units = SplitParagraphs(text).SelectMany(p => FitUnit(p, unitLimit)).ToList();
+
+        // Glue is what joins a unit to the one before it: a page that starts mid-sentence continues the text.
+        var units = new List<(string Text, int? Page, string Glue)>();
+        foreach (var section in pages)
+        {
+            var glue = units.Count > 0 && !EndsSentence(units[^1].Text) ? " " : "\n\n";
+            foreach (var unit in SplitParagraphs(section.Text).SelectMany(p => FitUnit(p, unitLimit)))
+            {
+                units.Add((unit, section.PageNumber, glue));
+                glue = "\n\n";
+            }
+        }
 
         var current = "";
+        int? currentPage = null;
         var hasNewContent = false;
 
-        foreach (var unit in units)
+        foreach (var (unit, page, glue) in units)
         {
-            var candidate = current.Length == 0 ? unit : current + "\n\n" + unit;
+            var candidate = current.Length == 0 ? unit : current + glue + unit;
             if (current.Length == 0 || _tokens.Count(candidate) <= _budget)
             {
+                if (current.Length == 0) currentPage = page;
                 current = candidate;
                 hasNewContent = true;
                 continue;
             }
 
-            yield return current;
+            yield return (current, currentPage);
 
             var overlap = Tail(current, _overlapTokens);
-            var withOverlap = overlap.Length == 0 ? unit : overlap + "\n\n" + unit;
+            var withOverlap = overlap.Length == 0 ? unit : overlap + glue + unit;
             // Tokenization at the join can add a token or two; fall back to no overlap rather than exceed budget.
             current = _tokens.Count(withOverlap) <= _budget ? withOverlap : unit;
+            currentPage = page;
             hasNewContent = true;
         }
 
         if (current.Length > 0 && hasNewContent)
-            yield return current;
+            yield return (current, currentPage);
     }
+
+    private static bool EndsSentence(string text) => ".!?:".Contains(text[^1]);
 
     private static IEnumerable<string> SplitParagraphs(string text) =>
         ParagraphBreak().Split(text).Select(p => p.Trim()).Where(p => p.Length > 0);

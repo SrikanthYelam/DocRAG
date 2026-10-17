@@ -129,6 +129,67 @@ public class ChunkerTests
     }
 
     [Fact]
+    public void A_sentence_running_across_a_page_break_stays_in_one_chunk()
+    {
+        var chunker = new Chunker(new WhitespaceTokenCounter(), Options);
+
+        var chunks = chunker.Chunk(Doc(
+            Section(Words(50, "a") + " The refund window is", 1),
+            Section("30 days from purchase. " + Words(50, "b"), 2)));
+
+        Assert.Contains(chunks, c => c.Text.Contains("The refund window is 30 days from purchase."));
+    }
+
+    [Fact]
+    public void Chunks_spanning_pages_report_the_page_their_new_text_starts_on()
+    {
+        var chunker = new Chunker(new WhitespaceTokenCounter(), Options);
+
+        var chunks = chunker.Chunk(Doc(
+            Section(Words(70, "a"), 1),
+            Section(Words(70, "b"), 2),
+            Section(Words(70, "c"), 3)));
+
+        Assert.Equal([1, 2, 3], chunks.Select(c => c.Metadata.PageNumber));
+    }
+
+    [Fact]
+    public void Sections_without_page_numbers_are_never_merged()
+    {
+        var chunker = new Chunker(new WhitespaceTokenCounter(), Options);
+
+        var chunks = chunker.Chunk(Doc(
+            Section(Words(10, "alpha"), null, "Example"),
+            Section(Words(10, "beta"), null, "Example")));
+
+        Assert.Equal(2, chunks.Count);
+    }
+
+    [Fact]
+    public void Pdf_text_continues_across_pages_through_the_real_parser_and_chunker()
+    {
+        const string fact = "Reimbursement is paid within 14 business days of approval.";
+        var parser = new PdfDocumentParser();
+
+        // Vary the filler until the PDF's own page break falls inside the sentence.
+        ParsedDocument? doc = null;
+        for (var words = 150; words < 300 && doc is null; words++)
+        {
+            var filler = string.Join(' ', Enumerable.Range(0, words).Select(i => $"word{i}"));
+            var pdf = PdfFixture.Build($"{filler} {fact} {filler}", linesPerPage: 20);
+            var parsed = parser.Parse(new MemoryStream(pdf), "policy.pdf");
+            var flat = (string s) => string.Join(' ', s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (parsed.Sections.Count > 1 && parsed.Sections.All(s => !flat(s.Text).Contains(fact)))
+                doc = parsed;
+        }
+        Assert.NotNull(doc);
+
+        var chunks = new Chunker(new TiktokenTokenCounter(), new ChunkingOptions()).Chunk(doc);
+
+        Assert.Contains(chunks, c => c.Text.Contains(fact));
+    }
+
+    [Fact]
     public void Markdown_parser_builds_nested_heading_paths()
     {
         var md = "# Guide\nintro\n## Install\nrun it\n```\n# not a heading\n```\n## Use\nuse it\n# Other\nend";
